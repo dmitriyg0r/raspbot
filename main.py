@@ -46,6 +46,10 @@ async def today_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_day = WEEKDAYS[datetime.datetime.now().weekday()]
     
     schedule_df = read_schedule('schedule.xlsx')
+    # Приводим значения к нижнему регистру
+    schedule_df['Неделя'] = schedule_df['Неделя'].str.lower()
+    schedule_df['День недели'] = schedule_df['День недели'].str.lower()
+    
     today_schedule = schedule_df[
         (schedule_df['Неделя'] == week_type) & 
         (schedule_df['День недели'] == current_day)
@@ -55,6 +59,8 @@ async def today_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("На сегодня занятий нет")
     else:
         response = f"Расписание на сегодня ({current_day}, {week_type} неделя):\n\n"
+        # Сортируем по времени
+        today_schedule = today_schedule.sort_values('Время')
         for _, row in today_schedule.iterrows():
             response += f"🕐 {row['Время']}\n"
             response += f"📚 {row['Предмет']}\n"
@@ -65,6 +71,11 @@ async def today_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Добавляем функцию для показа полного расписания
 async def full_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     schedule_df = read_schedule('schedule.xlsx')
+    
+    # Приводим значения в колонке 'Неделя' к нижнему регистру
+    schedule_df['Неделя'] = schedule_df['Неделя'].str.lower()
+    # Приводим значения в колонке 'День недели' к нижнему регистру
+    schedule_df['День недели'] = schedule_df['День недели'].str.lower()
     
     response = "📚 ПОЛНОЕ РАСПИСАНИЕ:\n\n"
     
@@ -77,6 +88,8 @@ async def full_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if not day_schedule.empty:
                 response += f"📅 {day.upper()}:\n"
+                # Сортируем по времени
+                day_schedule = day_schedule.sort_values('Время')
                 for _, row in day_schedule.iterrows():
                     response += f"🕐 {row['Время']}\n"
                     response += f"📚 {row['Предмет']}\n"
