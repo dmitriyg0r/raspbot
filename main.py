@@ -150,7 +150,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     # Токен бота
-    application = Application.builder().token('7660329675:AAHFxjjHYZyHoP2hZbjWqLvLVwLhU2WlAjQ').build()
+    application = Application.builder().token('Ваш токен').build()
 
     # обработчики команд
     application.add_handler(CommandHandler("start", start))
