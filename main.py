@@ -2,6 +2,11 @@ import pandas as pd
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 import datetime
+import os
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения из .env файла
+load_dotenv()
 
 # Функция для чтения данных из Excel
 def read_schedule(file_path: str):
@@ -149,8 +154,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await full_schedule(update, context)
 
 def main():
-    # Токен бота
-    application = Application.builder().token('7660329675:AAHFxjjHYZyHoP2hZbjWqLvLVwLhU2WlAjQ').build()
+    # Получаем токен из переменной окружения
+    application = Application.builder().token(os.getenv('BOT_TOKEN')).build()
 
     # обработчики команд
     application.add_handler(CommandHandler("start", start))
