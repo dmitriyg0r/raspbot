@@ -28,7 +28,7 @@ WEEKDAYS = {
 # Создаем клавиатуру
 def get_keyboard():
     keyboard = [
-        [KeyboardButton("Расписание на сегодня")],
+        [KeyboardButton("Расписание на сегодня"), KeyboardButton("Расписание на завтра")],
         [KeyboardButton("Показать всё расписание")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -104,12 +104,47 @@ async def full_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(response)
 
-# Обработчик текстовых сообщений
+# Добавляем функцию для показа расписания на завтра
+async def tomorrow_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Получаем завтрашний день
+    tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
+    tomorrow_weekday = WEEKDAYS[tomorrow.weekday()]
+    
+    # Определяем тип недели
+    week_type = get_week_type()
+    # Если завтра будет новая неделя
+    if datetime.datetime.now().weekday() == 6:  # если сегодня воскресенье
+        week_type = "четная" if week_type == "нечетная" else "нечетная"
+    
+    schedule_df = read_schedule('schedule.xlsx')
+    schedule_df['Неделя'] = schedule_df['Неделя'].str.lower()
+    schedule_df['День недели'] = schedule_df['День недели'].str.lower()
+    
+    tomorrow_schedule = schedule_df[
+        (schedule_df['Неделя'] == week_type) & 
+        (schedule_df['День недели'] == tomorrow_weekday)
+    ]
+    
+    if tomorrow_schedule.empty:
+        await update.message.reply_text("Завтра занятий нет")
+    else:
+        response = f"Расписание на завтра ({tomorrow_weekday}, {week_type} неделя):\n\n"
+        tomorrow_schedule = tomorrow_schedule.sort_values('Время')
+        for _, row in tomorrow_schedule.iterrows():
+            response += f"🕐 {row['Время']}\n"
+            response += f"📚 {row['Предмет']}\n"
+            response += f"🏛 Кабинет: {row['Кабинет']}\n\n"
+        
+        await update.message.reply_text(response)
+
+# Обновляем обработчик текстовых сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     
     if text == "Расписание на сегодня":
         await today_schedule(update, context)
+    elif text == "Расписание на завтра":
+        await tomorrow_schedule(update, context)
     elif text == "Показать всё расписание":
         await full_schedule(update, context)
 
@@ -117,9 +152,10 @@ def main():
     # Токен бота
     application = Application.builder().token('7660329675:AAHFxjjHYZyHoP2hZbjWqLvLVwLhU2WlAjQ').build()
 
-    # Добавляем обработчики команд
+    # обработчики команд
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("today", today_schedule))
+    application.add_handler(CommandHandler("tomorrow", tomorrow_schedule))
     application.add_handler(CommandHandler("full", full_schedule))
     application.add_handler(MessageHandler(filters.TEXT, handle_message))
 
