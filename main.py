@@ -220,7 +220,7 @@ def main():
     # Настраиваем планировщик с учетом московского времени
     moscow_tz = pytz.timezone('Europe/Moscow')
     current_date = datetime.now(moscow_tz)
-    target_time = time(hour=18, minute=58)
+    target_time = time(hour=20, minute=0)
     
     # Конвертируем время в UTC для планировщика
     moscow_time = moscow_tz.localize(datetime.combine(current_date, target_time))
