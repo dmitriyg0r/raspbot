@@ -1,21 +1,35 @@
 import pandas as pd
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, JobQueue
 import datetime
 import os
 from dotenv import load_dotenv
+import logging
+from datetime import datetime, timedelta, time, timezone
+import pytz  # добавим для работы с часовыми поясами
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
 
+# Добавляем логирование для отладки
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
 # Функция для чтения данных из Excel
 def read_schedule(file_path: str):
-    df = pd.read_excel(file_path)
-    return df
+    try:
+        df = pd.read_excel(file_path)
+        return df
+    except Exception as e:
+        logger.error(f"Ошибка при чтении файла расписания: {str(e)}")
+        return pd.DataFrame()
 
 # Определение текущей недели (четная/нечетная)
 def get_week_type():
-    current_date = datetime.datetime.now()
+    current_date = datetime.now()
     week_number = current_date.isocalendar()[1]
     return "четная" if week_number % 2 == 0 else "нечетная"
 
@@ -111,14 +125,14 @@ async def full_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Добавляем функцию для показа расписания на завтра
 async def tomorrow_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Получаем завтрашний день
-    tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
+    # Исправляем использование datetime
+    tomorrow = datetime.now() + timedelta(days=1)
     tomorrow_weekday = WEEKDAYS[tomorrow.weekday()]
     
     # Определяем тип недели
     week_type = get_week_type()
     # Если завтра будет новая неделя
-    if datetime.datetime.now().weekday() == 6:  # если сегодня воскресенье
+    if datetime.now().weekday() == 6:  # если сегодня воскресенье
         week_type = "четная" if week_type == "нечетная" else "нечетная"
     
     schedule_df = read_schedule('schedule.xlsx')
@@ -153,18 +167,86 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "Показать всё расписание":
         await full_schedule(update, context)
 
-def main():
-    # Получаем токен из переменной окружения
-    application = Application.builder().token(os.getenv('BOT_TOKEN')).build()
+# Добавляем новую функцию для отправки расписания в канал
+async def send_schedule_to_channel(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        channel_id = os.getenv('CHANNEL_ID')
+        logger.info(f"Начинаю отправку расписания в канал {channel_id}")
+        
+        # Исправляем использование datetime
+        tomorrow = datetime.now() + timedelta(days=1)
+        tomorrow_weekday = WEEKDAYS[tomorrow.weekday()]
+        
+        week_type = get_week_type()
+        if datetime.now().weekday() == 6:
+            week_type = "четная" if week_type == "нечетная" else "нечетная"
+        
+        logger.info(f"Подготовка расписания на {tomorrow_weekday}, {week_type} неделя")
+        
+        schedule_df = read_schedule('schedule.xlsx')
+        schedule_df['Неделя'] = schedule_df['Неделя'].str.lower()
+        schedule_df['День недели'] = schedule_df['День недели'].str.lower()
+        
+        tomorrow_schedule = schedule_df[
+            (schedule_df['Неделя'] == week_type) & 
+            (schedule_df['День недели'] == tomorrow_weekday)
+        ]
+        
+        if tomorrow_schedule.empty:
+            message = "Завтра занятий нет"
+        else:
+            message = f"Расписание на завтра ({tomorrow_weekday}, {week_type} неделя):\n\n"
+            tomorrow_schedule = tomorrow_schedule.sort_values('Время')
+            for _, row in tomorrow_schedule.iterrows():
+                message += f"🕐 {row['Время']}\n"
+                message += f"📚 {row['Предмет']}\n"
+                message += f"🏛 Кабинет: {row['Кабинет']}\n\n"
+        
+        logger.info("Отправляю сообщение в канал")
+        await context.bot.send_message(chat_id=channel_id, text=message)
+        logger.info("Сообщение успешно отправлено")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при отправке расписания: {str(e)}")
 
-    # обработчики команд
+async def test_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Тестовая команда для немедленной отправки расписания"""
+    await send_schedule_to_channel(context)
+    await update.message.reply_text("Тестовая отправка выполнена")
+
+def main():
+    application = Application.builder().token(os.getenv('BOT_TOKEN')).build()
+    
+    # Настраиваем планировщик с учетом московского времени
+    moscow_tz = pytz.timezone('Europe/Moscow')
+    current_date = datetime.now(moscow_tz)
+    target_time = time(hour=18, minute=58)
+    
+    # Конвертируем время в UTC для планировщика
+    moscow_time = moscow_tz.localize(datetime.combine(current_date, target_time))
+    utc_time = moscow_time.astimezone(pytz.UTC).time()
+    
+    job_queue = application.job_queue
+    job_queue.run_daily(
+        send_schedule_to_channel,
+        time=utc_time,
+        days=(0,1,2,3,4,5,6),
+        name='daily_schedule'
+    )
+    
+    logger.info(f"Планировщик настроен на отправку в {target_time} по московскому времени (UTC: {utc_time})")
+    
+    # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("test", test_send))  # Добавляем тестовую команду
     application.add_handler(CommandHandler("today", today_schedule))
     application.add_handler(CommandHandler("tomorrow", tomorrow_schedule))
     application.add_handler(CommandHandler("full", full_schedule))
     application.add_handler(MessageHandler(filters.TEXT, handle_message))
-
-    # Запускаем бота
+    
+    # Добавляем команду для ручной отправки расписания (для тестирования)
+    application.add_handler(CommandHandler("send_schedule", send_schedule_to_channel))
+    
     application.run_polling()
 
 if __name__ == '__main__':
