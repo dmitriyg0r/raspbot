@@ -238,7 +238,7 @@ def main():
     
     # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("test", test_send))  # Добавляем тестовую команду
+    application.add_handler(CommandHandler("test", test_send))
     application.add_handler(CommandHandler("today", today_schedule))
     application.add_handler(CommandHandler("tomorrow", tomorrow_schedule))
     application.add_handler(CommandHandler("full", full_schedule))
