@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timedelta, time, timezone
 import pytz  # добавим для работы с часовыми поясами
 
+
 # Загружаем переменные окружения из .env файла
 load_dotenv()
 
@@ -29,9 +30,8 @@ def read_schedule(file_path: str):
 
 # Определение текущей недели (четная/нечетная)
 def get_week_type():
-    current_date = datetime.now()
-    week_number = current_date.isocalendar()[1]
-    return "четная" if week_number % 2 == 0 else "нечетная"
+    # Устанавливаем текущую неделю как нечетную, чтобы следующая была четной
+    return "четная"
 
 # Словарь для преобразования английских названий дней в русские
 WEEKDAYS = {
@@ -123,21 +123,30 @@ async def full_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(response)
 
+def time_to_minutes(time_str):
+    # Берем время начала пары (до дефиса)
+    start_time = time_str.split('-')[0]
+    # Разбиваем на часы и минуты
+    hours, minutes = map(int, start_time.split(':'))
+    # Переводим в минуты
+    return hours * 60 + minutes
+
 # Добавляем функцию для показа расписания на завтра
 async def tomorrow_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Исправляем использование datetime
     tomorrow = datetime.now() + timedelta(days=1)
     tomorrow_weekday = WEEKDAYS[tomorrow.weekday()]
     
-    # Определяем тип недели
-    week_type = get_week_type()
-    # Если завтра будет новая неделя
-    if datetime.now().weekday() == 6:  # если сегодня воскресенье
-        week_type = "четная" if week_type == "нечетная" else "нечетная"
+    week_type = "четная"
     
     schedule_df = read_schedule('schedule.xlsx')
     schedule_df['Неделя'] = schedule_df['Неделя'].str.lower()
     schedule_df['День недели'] = schedule_df['День недели'].str.lower()
+    
+    # Создаем временную колонку для сортировки
+    def get_sort_time(time_str):
+        start_time = time_str.split('-')[0].strip()
+        hour, minute = map(int, start_time.split(':'))
+        return hour * 100 + minute
     
     tomorrow_schedule = schedule_df[
         (schedule_df['Неделя'] == week_type) & 
@@ -148,7 +157,9 @@ async def tomorrow_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Завтра занятий нет")
     else:
         response = f"Расписание на завтра ({tomorrow_weekday}, {week_type} неделя):\n\n"
-        tomorrow_schedule = tomorrow_schedule.sort_values('Время')
+        # Сортируем по времени
+        tomorrow_schedule['sort_time'] = tomorrow_schedule['Время'].apply(get_sort_time)
+        tomorrow_schedule = tomorrow_schedule.sort_values('sort_time')
         for _, row in tomorrow_schedule.iterrows():
             response += f"🕐 {row['Время']}\n"
             response += f"📚 {row['Предмет']}\n"
@@ -173,19 +184,19 @@ async def send_schedule_to_channel(context: ContextTypes.DEFAULT_TYPE):
         channel_id = os.getenv('CHANNEL_ID')
         logger.info(f"Начинаю отправку расписания в канал {channel_id}")
         
-        # Исправляем использование datetime
         tomorrow = datetime.now() + timedelta(days=1)
         tomorrow_weekday = WEEKDAYS[tomorrow.weekday()]
         
-        week_type = get_week_type()
-        if datetime.now().weekday() == 6:
-            week_type = "четная" if week_type == "нечетная" else "нечетная"
-        
-        logger.info(f"Подготовка расписания на {tomorrow_weekday}, {week_type} неделя")
+        week_type = "четная"
         
         schedule_df = read_schedule('schedule.xlsx')
         schedule_df['Неделя'] = schedule_df['Неделя'].str.lower()
         schedule_df['День недели'] = schedule_df['День недели'].str.lower()
+        
+        def get_sort_time(time_str):
+            start_time = time_str.split('-')[0].strip()
+            hour, minute = map(int, start_time.split(':'))
+            return hour * 100 + minute
         
         tomorrow_schedule = schedule_df[
             (schedule_df['Неделя'] == week_type) & 
@@ -196,13 +207,14 @@ async def send_schedule_to_channel(context: ContextTypes.DEFAULT_TYPE):
             message = "Завтра занятий нет"
         else:
             message = f"Расписание на завтра ({tomorrow_weekday}, {week_type} неделя):\n\n"
-            tomorrow_schedule = tomorrow_schedule.sort_values('Время')
+            # Сортируем по времени
+            tomorrow_schedule['sort_time'] = tomorrow_schedule['Время'].apply(get_sort_time)
+            tomorrow_schedule = tomorrow_schedule.sort_values('sort_time')
             for _, row in tomorrow_schedule.iterrows():
                 message += f"🕐 {row['Время']}\n"
                 message += f"📚 {row['Предмет']}\n"
                 message += f"🏛 Кабинет: {row['Кабинет']}\n\n"
         
-        logger.info("Отправляю сообщение в канал")
         await context.bot.send_message(chat_id=channel_id, text=message)
         logger.info("Сообщение успешно отправлено")
         
@@ -220,7 +232,7 @@ def main():
     # Настраиваем планировщик с учетом московского времени
     moscow_tz = pytz.timezone('Europe/Moscow')
     current_date = datetime.now(moscow_tz)
-    target_time = time(hour=20, minute=0)
+    target_time = time(hour=18, minute=00)
     
     # Конвертируем время в UTC для планировщика
     moscow_time = moscow_tz.localize(datetime.combine(current_date, target_time))
